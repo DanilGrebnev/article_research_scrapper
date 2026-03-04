@@ -2,15 +2,20 @@ services:
   chrome:
     image: selenium/standalone-chrome:latest
     shm_size: 2g
-    ports:
-      - "4444:4444"
 
-  app:
-    build: .
+  backend:
+    build: ./backend
     depends_on:
       chrome:
         condition: service_started
-    volumes:
-      - ./downloads:/app/downloads
     environment:
       - CHROME_URL=http://chrome:4444/wd/hub
+    volumes:
+      - ./downloads:/app/downloads
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend

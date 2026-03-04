@@ -3,5 +3,6 @@ __pycache__
 downloads
 .git
 .gitignore
-README.md
 *.pyc
+node_modules
+.next
