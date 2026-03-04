@@ -1,0 +1,40 @@
+Запрос: surface alloying of iron castings in a casting mold
+Фильтр: только Full access
+Найдено статей: 7
+================================================================================
+
+1. Characteristics of Bimetallic Castings with Varying Thickness of Liquid High Carbon Grey Cast Iron and Solid High Chromium Stainless Steel 304 Produced by Green Sand Mold Casting
+   Описание: This study investigates the behaviour of high-chromium stainless steel 304/high-carbon grey cast iron (HCSS 304/HCGCI) bimetallic metal matrix...
+   Авторы: Bateshwar Prasad, Amitesh Kumar, Nandita Gupta
+--------------------------------------------------------------------------------
+
+2. Mechanical Characterization of Multi-material Castings Produced by an Injector Casting-Based Process
+   Описание: In the multi-material injector casting process, two different melts are cast consecutively into a mold through a ceramic injector. The current work...
+   Авторы: Maximilian Erber, Georg Fuchs, ... Wolfram Volk
+--------------------------------------------------------------------------------
+
+3. Dual-Alloy Sand Mold Casting: Main Principles and Features
+   Описание: The multi-material injector casting (MMIC) process allows the production of castings with two different alloys in a single process. The metal is...
+   Авторы: Liudmyla Lisova, Maximilian Erber, ... Wolfram Volk
+--------------------------------------------------------------------------------
+
+4. A Case Study on the Casting Skin Phenomena in Compacted Graphite Iron Cast Components
+   Описание: In sand casting, the surface microstructure often differs from the bulk microstructure due to mold–metal interactions. In nodular and compacted...
+   Авторы: Cláudia Guedes, Björn Domeij, ... Attila Diószegi
+--------------------------------------------------------------------------------
+
+5. Relationships Between Macrostructure and Microstructure in Lamellar Graphite Iron Castings
+   Описание: Spherical sheet steel molds filled with gray iron melts of varying chemical compositions and metallurgical conditions were air-cooled until solid,...
+   Авторы: Björn Domeij, Attila Diószegi
+--------------------------------------------------------------------------------
+
+6. Microstructure, mechanical parameters, and corrosion resistance of austenitic ductile iron castings
+   Описание: Austenitic ductile iron, also known as Ni-resist cast iron, belongs to the cast iron group, which is characterized by a high-nickel content ranging...
+   Авторы: M. Bork, M. Górny, ... J. Marosz
+--------------------------------------------------------------------------------
+
+7. Enhancing Manganese Steel Castings: The Role of Magnesium, Calcium, and Surface-Active Elements in Reinforcing Ceramic-Metal Composite Structures
+   Описание: The enhancement of manganese steel castings through the incorporation of magnesium, calcium, and surface-active elements has been investigated with a...
+   Авторы: Islam Salem, M. K. ElFawkhry, ... Taha Mattar
+--------------------------------------------------------------------------------
+
