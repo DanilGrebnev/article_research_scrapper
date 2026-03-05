@@ -1,16 +1,23 @@
 import asyncio
+import json
 import logging
+import threading
 from typing import Optional
 
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.responses import StreamingResponse
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
 from browser import create_browser
 from sites.springer.scrape import get_page_count, scrape_page, scrape_abstract
-from database import init_db, create_session, insert_articles, get_article, update_article_abstract
+from database import (
+    init_db, create_session, insert_articles, get_article,
+    update_article_abstract, get_all_sessions, delete_session,
+    get_session, search_articles_by_title, update_session_pages,
+)
 
 app = FastAPI(title="Scrapper API")
 
@@ -22,6 +29,13 @@ app.add_middleware(
 )
 
 init_db()
+
+active_scrapes: dict[int, threading.Event] = {}
+
+
+def _sse_event(event_type: str, data: dict) -> str:
+    payload = {**data, "type": event_type}
+    return f"data: {json.dumps(payload)}\n\n"
 
 
 # --- Pydantic-модели запросов и ответов ---
@@ -61,6 +75,21 @@ class AbstractResponse(BaseModel):
     abstract: str
 
 
+class SessionListItem(BaseModel):
+    id: int
+    query: str
+    created_at: str
+    article_count: int
+    pages_scanned: int
+
+
+class SessionDetailResponse(BaseModel):
+    id: int
+    query: str
+    created_at: str
+    articles: list[Article]
+
+
 # --- Эндпоинты ---
 
 
@@ -86,50 +115,80 @@ async def springer_page_count(
     return PageCountResponse(total_pages=total)
 
 
-@app.post("/api/springer/scrape", response_model=ScrapeResponse)
-async def springer_scrape(body: ScrapeRequest):
-    def _fetch():
-        driver = create_browser()
+@app.get("/api/springer/scrape")
+async def springer_scrape_sse(
+    query: str = Query(..., min_length=1),
+    page_from: int = Query(1),
+    page_to: int = Query(1),
+    only_full_access: bool = Query(True),
+    date_from: str = Query(""),
+    date_to: str = Query(""),
+):
+    session_id = create_session(query)
+    stop_event = threading.Event()
+    active_scrapes[session_id] = stop_event
+
+    async def event_generator():
+        total_articles = 0
+        total_skipped = 0
         try:
-            all_articles = []
-            total_skipped = 0
-            for page_num in range(body.page_from, body.page_to + 1):
-                result = scrape_page(
-                    driver, body.query, page_num, body.only_full_access,
-                    body.date_from, body.date_to,
-                )
-                all_articles.extend(result["articles"])
-                total_skipped += result["skipped"]
-            return all_articles, total_skipped
+            yield _sse_event("started", {"session_id": session_id})
+
+            driver = create_browser()
+            try:
+                total_pages = page_to - page_from + 1
+                for page_num in range(page_from, page_to + 1):
+                    if stop_event.is_set():
+                        yield _sse_event("stopped", {
+                            "session_id": session_id,
+                            "total": total_articles,
+                            "skipped": total_skipped,
+                        })
+                        return
+
+                    result = await asyncio.to_thread(
+                        scrape_page, driver, query, page_num,
+                        only_full_access, date_from, date_to,
+                    )
+
+                    page_articles = result["articles"]
+                    if page_articles:
+                        insert_articles(session_id, page_articles)
+                    total_articles += len(page_articles)
+                    total_skipped += result["skipped"]
+                    pages_done = page_num - page_from + 1
+                    update_session_pages(session_id, pages_done)
+
+                    yield _sse_event("progress", {
+                        "current_page": page_num - page_from + 1,
+                        "total_pages": total_pages,
+                        "articles_found": total_articles,
+                        "skipped": total_skipped,
+                    })
+
+                yield _sse_event("complete", {
+                    "session_id": session_id,
+                    "total": total_articles,
+                    "skipped": total_skipped,
+                })
+            finally:
+                driver.quit()
+        except Exception as e:
+            logger.exception("scrape SSE failed")
+            yield _sse_event("error", {"message": str(e)})
         finally:
-            driver.quit()
+            active_scrapes.pop(session_id, None)
 
-    try:
-        articles, skipped = await asyncio.to_thread(_fetch)
-    except Exception as e:
-        logger.exception("scrape failed")
-        raise HTTPException(status_code=500, detail=str(e))
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
-    session_id = create_session(body.query)
-    article_ids = insert_articles(session_id, articles)
 
-    response_articles = []
-    for art, art_id in zip(articles, article_ids):
-        response_articles.append(Article(
-            id=art_id,
-            title=art["title"],
-            url=art.get("url", ""),
-            published_date=art.get("published_date", ""),
-            description=art.get("description", ""),
-            authors=art.get("authors", ""),
-        ))
-
-    return ScrapeResponse(
-        session_id=session_id,
-        articles=response_articles,
-        total=len(response_articles),
-        skipped=skipped,
-    )
+@app.post("/api/springer/scrape/{session_id}/stop")
+async def stop_scrape(session_id: int):
+    event = active_scrapes.get(session_id)
+    if not event:
+        raise HTTPException(404, "Scrape not found or already completed")
+    event.set()
+    return {"ok": True}
 
 
 @app.post("/api/springer/article/{article_id}/abstract", response_model=AbstractResponse)
@@ -160,3 +219,37 @@ async def fetch_article_abstract(article_id: int):
 
     update_article_abstract(article_id, abstract)
     return AbstractResponse(abstract=abstract)
+
+
+@app.get("/api/sessions", response_model=list[SessionListItem])
+async def list_sessions():
+    return get_all_sessions()
+
+
+@app.delete("/api/sessions/{session_id}")
+async def remove_session(session_id: int):
+    if not delete_session(session_id):
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"ok": True}
+
+
+@app.get("/api/sessions/{session_id}", response_model=SessionDetailResponse)
+async def session_detail(session_id: int, search: str = Query("")):
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    articles = search_articles_by_title(session_id, search)
+    return SessionDetailResponse(
+        id=session["id"],
+        query=session["query"],
+        created_at=session["created_at"],
+        articles=[Article(
+            id=a["id"],
+            title=a["title"],
+            url=a.get("url", ""),
+            published_date=a.get("published_date", ""),
+            description=a.get("description", ""),
+            authors=a.get("authors", ""),
+            abstract=a.get("abstract"),
+        ) for a in articles],
+    )

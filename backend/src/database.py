@@ -22,7 +22,8 @@ def init_db():
             CREATE TABLE IF NOT EXISTS scrape_sessions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 query TEXT NOT NULL,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                pages_scanned INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS articles (
@@ -39,6 +40,11 @@ def init_db():
             );
         """)
         conn.commit()
+
+        cols = [row[1] for row in conn.execute("PRAGMA table_info(scrape_sessions)").fetchall()]
+        if "pages_scanned" not in cols:
+            conn.execute("ALTER TABLE scrape_sessions ADD COLUMN pages_scanned INTEGER NOT NULL DEFAULT 0")
+            conn.commit()
     finally:
         conn.close()
 
@@ -79,6 +85,18 @@ def insert_articles(session_id: int, articles: list[dict]) -> list[int]:
             ids.append(cur.lastrowid)
         conn.commit()
         return ids
+    finally:
+        conn.close()
+
+
+def update_session_pages(session_id: int, pages_scanned: int):
+    conn = _get_connection()
+    try:
+        conn.execute(
+            "UPDATE scrape_sessions SET pages_scanned = ? WHERE id = ?",
+            (pages_scanned, session_id),
+        )
+        conn.commit()
     finally:
         conn.close()
 
@@ -124,5 +142,48 @@ def update_article_abstract(article_id: int, abstract: str):
             (abstract, article_id),
         )
         conn.commit()
+    finally:
+        conn.close()
+
+
+def get_all_sessions() -> list[dict]:
+    conn = _get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT s.id, s.query, s.created_at, s.pages_scanned,
+                      (SELECT COUNT(*) FROM articles WHERE session_id = s.id) as article_count
+               FROM scrape_sessions s ORDER BY s.id DESC"""
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def delete_session(session_id: int) -> bool:
+    conn = _get_connection()
+    try:
+        cur = conn.execute(
+            "DELETE FROM scrape_sessions WHERE id = ?", (session_id,)
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def search_articles_by_title(session_id: int, title_query: str) -> list[dict]:
+    conn = _get_connection()
+    try:
+        if title_query.strip():
+            rows = conn.execute(
+                "SELECT * FROM articles WHERE session_id = ? AND title LIKE ? ORDER BY id",
+                (session_id, f"%{title_query}%"),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM articles WHERE session_id = ? ORDER BY id",
+                (session_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
     finally:
         conn.close()

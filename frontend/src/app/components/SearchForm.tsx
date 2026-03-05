@@ -1,5 +1,12 @@
 "use client";
 
+interface ScrapeProgress {
+  currentPage: number;
+  totalPages: number;
+  articlesFound: number;
+  skipped: number;
+}
+
 interface SearchFormProps {
   query: string;
   onQueryChange: (value: string) => void;
@@ -19,7 +26,9 @@ interface SearchFormProps {
   onApplyFilters: () => void;
   filtersChanged: boolean;
   onScrape: () => void;
+  onStopScrape: () => void;
   isScraping: boolean;
+  scrapeProgress: ScrapeProgress | null;
 }
 
 export default function SearchForm({
@@ -41,8 +50,15 @@ export default function SearchForm({
   onApplyFilters,
   filtersChanged,
   onScrape,
+  onStopScrape,
   isScraping,
+  scrapeProgress,
 }: SearchFormProps) {
+  const progressPercent =
+    scrapeProgress && scrapeProgress.totalPages > 0
+      ? Math.round((scrapeProgress.currentPage / scrapeProgress.totalPages) * 100)
+      : 0;
+
   return (
     <div className="search-form">
       <div className="form-group">
@@ -144,14 +160,42 @@ export default function SearchForm({
         >
           Применить фильтры
         </button>
-        <button
-          onClick={onScrape}
-          disabled={isScraping || isFetchingPages || filtersChanged || query.length < 3}
-          className="btn-primary"
-        >
-          {isScraping ? "Скраппинг..." : "Запустить скраппинг"}
-        </button>
+        {isScraping ? (
+          <button onClick={onStopScrape} className="btn-danger">
+            Остановить скрапинг
+          </button>
+        ) : (
+          <button
+            onClick={onScrape}
+            disabled={isFetchingPages || filtersChanged || query.length < 3}
+            className="btn-primary"
+          >
+            Запустить скраппинг
+          </button>
+        )}
       </div>
+
+      {isScraping && scrapeProgress && (
+        <div className="scrape-progress">
+          <div className="scrape-progress__text">
+            Скраплено {scrapeProgress.currentPage} из {scrapeProgress.totalPages} страниц
+            {" | "}Найдено {scrapeProgress.articlesFound} статей
+          </div>
+          <div className="scrape-progress__bar">
+            <div
+              className="scrape-progress__fill"
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+          <div className="scrape-progress__percent">{progressPercent}%</div>
+        </div>
+      )}
+
+      {isScraping && !scrapeProgress && (
+        <div className="scrape-progress">
+          <div className="scrape-progress__text">Подключение к серверу...</div>
+        </div>
+      )}
     </div>
   );
 }

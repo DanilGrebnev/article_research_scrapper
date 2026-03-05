@@ -1,25 +1,24 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
 import SearchForm from "./components/SearchForm";
 import ResultsTable from "./components/ResultsTable";
+import type { Article } from "./components/ArticleCard";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-interface Article {
-  id: number;
-  title: string;
-  url: string;
-  published_date: string;
-  description: string;
-  authors: string;
-  abstract: string | null;
+interface ScrapeProgress {
+  currentPage: number;
+  totalPages: number;
+  articlesFound: number;
+  skipped: number;
 }
 
-interface ScrapeResult {
-  session_id: number;
+interface SessionDetail {
+  id: number;
+  query: string;
+  created_at: string;
   articles: Article[];
-  total: number;
-  skipped: number;
 }
 
 function useDebounce(value: string, delay: number): string {
@@ -65,7 +64,7 @@ export default function Home() {
         date_from: appliedFilters.dateFrom,
         date_to: appliedFilters.dateTo,
       });
-      const res = await fetch(`/api/springer/page-count?${params}`);
+      const res = await fetch(`${API_URL}/api/springer/page-count?${params}`);
       if (!res.ok) throw new Error("Failed to fetch page count");
       return res.json() as Promise<{ total_pages: number }>;
     },
@@ -82,24 +81,101 @@ export default function Home() {
     }
   }, [totalPages]);
 
-  const scrapeMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch("/api/springer/scrape", {
+  const [isScraping, setIsScraping] = useState(false);
+  const [scrapeProgress, setScrapeProgress] = useState<ScrapeProgress | null>(null);
+  const [scrapeSessionId, setScrapeSessionId] = useState<number | null>(null);
+  const [scrapeResult, setScrapeResult] = useState<{ articles: Article[]; total: number; skipped: number } | null>(null);
+  const [scrapeError, setScrapeError] = useState<string | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
+
+  useEffect(() => {
+    return () => {
+      eventSourceRef.current?.close();
+    };
+  }, []);
+
+  const startScraping = useCallback(() => {
+    setScrapeError(null);
+    setScrapeResult(null);
+    setScrapeProgress(null);
+    setScrapeSessionId(null);
+    setIsScraping(true);
+
+    const params = new URLSearchParams({
+      query,
+      page_from: String(pageFrom),
+      page_to: String(pageTo),
+      only_full_access: String(appliedFilters.onlyFullAccess),
+      date_from: appliedFilters.dateFrom,
+      date_to: appliedFilters.dateTo,
+    });
+
+    const es = new EventSource(`${API_URL}/api/springer/scrape?${params}`);
+    eventSourceRef.current = es;
+
+    es.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      switch (data.type) {
+        case "started":
+          setScrapeSessionId(data.session_id);
+          break;
+        case "progress":
+          setScrapeProgress({
+            currentPage: data.current_page,
+            totalPages: data.total_pages,
+            articlesFound: data.articles_found,
+            skipped: data.skipped,
+          });
+          break;
+        case "complete":
+        case "stopped":
+          es.close();
+          eventSourceRef.current = null;
+          setIsScraping(false);
+          setScrapeProgress(null);
+          fetchSessionResult(data.session_id);
+          break;
+        case "error":
+          es.close();
+          eventSourceRef.current = null;
+          setIsScraping(false);
+          setScrapeProgress(null);
+          setScrapeError(data.message);
+          break;
+      }
+    };
+
+    es.onerror = () => {
+      es.close();
+      eventSourceRef.current = null;
+      setIsScraping(false);
+      setScrapeProgress(null);
+      setScrapeError("Соединение с сервером потеряно");
+    };
+  }, [query, pageFrom, pageTo, appliedFilters]);
+
+  const stopScraping = useCallback(async () => {
+    if (scrapeSessionId) {
+      await fetch(`${API_URL}/api/springer/scrape/${scrapeSessionId}/stop`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          query,
-          page_from: pageFrom,
-          page_to: pageTo,
-          only_full_access: appliedFilters.onlyFullAccess,
-          date_from: appliedFilters.dateFrom,
-          date_to: appliedFilters.dateTo,
-        }),
       });
-      if (!res.ok) throw new Error("Scraping failed");
-      return res.json() as Promise<ScrapeResult>;
-    },
-  });
+    }
+  }, [scrapeSessionId]);
+
+  const fetchSessionResult = async (sessionId: number) => {
+    try {
+      const res = await fetch(`${API_URL}/api/sessions/${sessionId}`);
+      if (!res.ok) throw new Error("Failed to fetch results");
+      const data: SessionDetail = await res.json();
+      setScrapeResult({
+        articles: data.articles,
+        total: data.articles.length,
+        skipped: 0,
+      });
+    } catch {
+      setScrapeError("Не удалось загрузить результаты");
+    }
+  };
 
   return (
     <main>
@@ -122,20 +198,22 @@ export default function Home() {
         isFetchingPages={pageCountQuery.isFetching}
         onApplyFilters={applyFilters}
         filtersChanged={filtersChanged}
-        onScrape={() => scrapeMutation.mutate()}
-        isScraping={scrapeMutation.isPending}
+        onScrape={startScraping}
+        onStopScrape={stopScraping}
+        isScraping={isScraping}
+        scrapeProgress={scrapeProgress}
       />
-      {scrapeMutation.data && (
+      {scrapeResult && (
         <ResultsTable
           query={query}
-          articles={scrapeMutation.data.articles}
-          total={scrapeMutation.data.total}
-          skipped={scrapeMutation.data.skipped}
+          articles={scrapeResult.articles}
+          total={scrapeResult.total}
+          skipped={scrapeResult.skipped}
         />
       )}
-      {scrapeMutation.error && (
+      {scrapeError && (
         <div className="error">
-          Ошибка: {scrapeMutation.error.message}
+          Ошибка: {scrapeError}
         </div>
       )}
     </main>
