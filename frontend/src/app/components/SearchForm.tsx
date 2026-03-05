@@ -9,8 +9,15 @@ interface SearchFormProps {
   onPageToChange: (value: number) => void;
   onlyFullAccess: boolean;
   onOnlyFullAccessChange: (value: boolean) => void;
+  dateFrom: string;
+  onDateFromChange: (value: string) => void;
+  dateTo: string;
+  onDateToChange: (value: string) => void;
   totalPages?: number;
   isLoadingPages: boolean;
+  isFetchingPages: boolean;
+  onApplyFilters: () => void;
+  filtersChanged: boolean;
   onScrape: () => void;
   isScraping: boolean;
 }
@@ -24,8 +31,15 @@ export default function SearchForm({
   onPageToChange,
   onlyFullAccess,
   onOnlyFullAccessChange,
+  dateFrom,
+  onDateFromChange,
+  dateTo,
+  onDateToChange,
   totalPages,
   isLoadingPages,
+  isFetchingPages,
+  onApplyFilters,
+  filtersChanged,
   onScrape,
   isScraping,
 }: SearchFormProps) {
@@ -56,6 +70,7 @@ export default function SearchForm({
             max={totalPages || 999}
             value={pageFrom}
             onChange={(e) => onPageFromChange(Number(e.target.value))}
+            disabled={isFetchingPages || query.length < 3}
           />
         </div>
         <div className="form-group">
@@ -67,6 +82,44 @@ export default function SearchForm({
             max={totalPages || 999}
             value={pageTo}
             onChange={(e) => onPageToChange(Number(e.target.value))}
+            disabled={isFetchingPages || query.length < 3}
+          />
+        </div>
+      </div>
+
+      <div className="form-row">
+        <div className="form-group">
+          <label htmlFor="dateFrom">Год с</label>
+          <input
+            id="dateFrom"
+            type="text"
+            inputMode="numeric"
+            pattern="\d{4}"
+            placeholder="YYYY"
+            value={dateFrom}
+            maxLength={4}
+            onChange={(e) => {
+              const v = e.target.value.replace(/\D/g, "").slice(0, 4);
+              onDateFromChange(v);
+            }}
+            disabled={isFetchingPages || query.length < 3}
+          />
+        </div>
+        <div className="form-group">
+          <label htmlFor="dateTo">Год по</label>
+          <input
+            id="dateTo"
+            type="text"
+            inputMode="numeric"
+            pattern="\d{4}"
+            placeholder="YYYY"
+            value={dateTo}
+            maxLength={4}
+            onChange={(e) => {
+              const v = e.target.value.replace(/\D/g, "").slice(0, 4);
+              onDateToChange(v);
+            }}
+            disabled={isFetchingPages || query.length < 3}
           />
         </div>
       </div>
@@ -77,18 +130,28 @@ export default function SearchForm({
             type="checkbox"
             checked={onlyFullAccess}
             onChange={(e) => onOnlyFullAccessChange(e.target.checked)}
+            disabled={isFetchingPages || query.length < 3}
           />
           Только Full access
         </label>
       </div>
 
-      <button
-        onClick={onScrape}
-        disabled={isScraping || query.length < 3}
-        className="btn-primary"
-      >
-        {isScraping ? "Скраппинг..." : "Запустить скраппинг"}
-      </button>
+      <div className="form-row">
+        <button
+          onClick={onApplyFilters}
+          disabled={!filtersChanged || isFetchingPages || query.length < 3}
+          className="btn-secondary"
+        >
+          Применить фильтры
+        </button>
+        <button
+          onClick={onScrape}
+          disabled={isScraping || isFetchingPages || filtersChanged || query.length < 3}
+          className="btn-primary"
+        >
+          {isScraping ? "Скраппинг..." : "Запустить скраппинг"}
+        </button>
+      </div>
     </div>
   );
 }

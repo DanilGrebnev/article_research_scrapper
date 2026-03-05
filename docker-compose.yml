@@ -12,6 +12,7 @@ services:
       - CHROME_URL=http://chrome:4444/wd/hub
     volumes:
       - ./downloads:/app/downloads
+      - ./data:/app/data
 
   frontend:
     build: ./frontend

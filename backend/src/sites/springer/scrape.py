@@ -3,21 +3,42 @@ from urllib.parse import quote_plus
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webdriver import WebDriver
 
+from config import WAIT_TIMEOUT
 from scraper import Scraper
 
 # Базовый URL сайта SpringerLink
 BASE_URL = "https://link.springer.com"
 
 
-def get_page_count(driver: WebDriver, query: str) -> int:
+def _build_search_url(
+    query: str,
+    page: int = 1,
+    open_access: bool = False,
+    date_from: str = "",
+    date_to: str = "",
+) -> str:
+    url = f"{BASE_URL}/search?query={quote_plus(query)}&sortBy=relevance&page={page}"
+    if open_access:
+        url += "&openAccess=true"
+    if date_from or date_to:
+        url += f"&date=custom&dateFrom={date_from}&dateTo={date_to}"
+    return url
+
+
+def get_page_count(
+    driver: WebDriver,
+    query: str,
+    only_full_access: bool = False,
+    date_from: str = "",
+    date_to: str = "",
+) -> int:
     """
     Открывает страницу поиска SpringerLink и возвращает
     общее количество страниц результатов.
     """
     scraper = Scraper(driver)
 
-    # Формируем URL поиска и открываем страницу
-    search_url = f"{BASE_URL}/search?query={quote_plus(query)}"
+    search_url = _build_search_url(query, open_access=only_full_access, date_from=date_from, date_to=date_to)
     scraper.go_to(search_url)
 
     # Ждём загрузки хотя бы одного заголовка статьи
@@ -40,6 +61,8 @@ def scrape_page(
     query: str,
     page: int = 1,
     only_full_access: bool = True,
+    date_from: str = "",
+    date_to: str = "",
 ) -> dict:
     """
     Скрапит одну страницу результатов поиска SpringerLink.
@@ -50,57 +73,87 @@ def scrape_page(
     """
     scraper = Scraper(driver)
 
-    # Формируем URL с номером страницы
-    search_url = f"{BASE_URL}/search?query={quote_plus(query)}&page={page}"
+    search_url = _build_search_url(query, page=page, open_access=only_full_access, date_from=date_from, date_to=date_to)
     scraper.go_to(search_url)
 
-    # Ждём загрузки результатов
     scraper.wait_for('[data-test="title"]', timeout=20)
 
-    # Находим все карточки статей на странице
-    # Каждая карточка — div.app-card-open__main
-    cards = driver.find_elements(By.CSS_SELECTOR, "div.app-card-open__main")
+    # find_elements с implicit wait будет ждать 15 сек на каждый
+    # отсутствующий элемент — отключаем на время парсинга карточек
+    driver.implicitly_wait(0)
 
-    articles = []
-    skipped = 0
+    try:
+        cards = driver.find_elements(By.CSS_SELECTOR, "div.app-card-open__main")
 
-    for card in cards:
-        # --- Проверка доступа к статье ---
-        # У статей с полным доступом есть элемент [data-test="entitlements"]
-        # с текстом "Full access". У статей без полного доступа его нет.
-        entitlement_els = card.find_elements(
-            By.CSS_SELECTOR, '[data-test="entitlements"]'
-        )
-        has_full_access = (
-            entitlement_els
-            and "full access" in entitlement_els[0].text.strip().lower()
-        )
-        if only_full_access and not has_full_access:
-            skipped += 1
-            continue
+        articles = []
+        skipped = 0
 
-        # --- Заголовок: <h3 data-test="title"> -> <span> ---
-        title_els = card.find_elements(
-            By.CSS_SELECTOR, 'h3[data-test="title"] span'
-        )
-        title = title_els[0].text.strip() if title_els else "—"
+        for card in cards:
+            entitlement_els = card.find_elements(
+                By.CSS_SELECTOR, '[data-test="entitlements"]'
+            )
+            has_full_access = (
+                entitlement_els
+                and "full access" in entitlement_els[0].text.strip().lower()
+            )
+            if only_full_access and not has_full_access:
+                skipped += 1
+                continue
 
-        # --- Описание: <div data-test="description"> -> <p> ---
-        desc_els = card.find_elements(
-            By.CSS_SELECTOR, '[data-test="description"] p'
-        )
-        description = desc_els[0].text.strip() if desc_els else "—"
+            title_els = card.find_elements(
+                By.CSS_SELECTOR, 'h3[data-test="title"] span'
+            )
+            title = title_els[0].text.strip() if title_els else "—"
 
-        # --- Авторы: <span data-test="authors"> ---
-        author_els = card.find_elements(
-            By.CSS_SELECTOR, '[data-test="authors"]'
-        )
-        authors = author_els[0].text.strip() if author_els else "—"
+            link_els = card.find_elements(
+                By.CSS_SELECTOR, 'h3[data-test="title"] a'
+            )
+            url = ""
+            if link_els:
+                href = link_els[0].get_attribute("href") or ""
+                url = href if href.startswith("http") else BASE_URL + href
 
-        articles.append({
-            "title": title,
-            "description": description,
-            "authors": authors,
-        })
+            desc_els = card.find_elements(
+                By.CSS_SELECTOR, '[data-test="description"]'
+            )
+            description = desc_els[0].text.strip() if desc_els else "—"
 
-    return {"articles": articles, "skipped": skipped}
+            author_els = card.find_elements(
+                By.CSS_SELECTOR, '[data-test="authors"]'
+            )
+            authors = author_els[0].text.strip() if author_els else "—"
+
+            published_els = card.find_elements(
+                By.CSS_SELECTOR, '[data-test="published"]'
+            )
+            published_date = published_els[0].text.strip() if published_els else ""
+
+            articles.append({
+                "title": title,
+                "url": url,
+                "description": description,
+                "authors": authors,
+                "published_date": published_date,
+            })
+
+        return {"articles": articles, "skipped": skipped}
+    finally:
+        driver.implicitly_wait(WAIT_TIMEOUT)
+
+
+def scrape_abstract(driver: WebDriver, article_url: str) -> str:
+    """
+    Переходит на страницу статьи и извлекает текст Abstract.
+    """
+    scraper = Scraper(driver)
+    scraper.go_to(article_url)
+
+    scraper.wait_for('#Abs1-content', timeout=20)
+
+    driver.implicitly_wait(0)
+    try:
+        paragraphs = driver.find_elements(By.CSS_SELECTOR, "#Abs1-content p")
+        abstract = "\n\n".join(p.text.strip() for p in paragraphs if p.text.strip())
+        return abstract or "—"
+    finally:
+        driver.implicitly_wait(WAIT_TIMEOUT)

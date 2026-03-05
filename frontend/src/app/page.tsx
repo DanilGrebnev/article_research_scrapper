@@ -6,12 +6,17 @@ import SearchForm from "./components/SearchForm";
 import ResultsTable from "./components/ResultsTable";
 
 interface Article {
+  id: number;
   title: string;
+  url: string;
+  published_date: string;
   description: string;
   authors: string;
+  abstract: string | null;
 }
 
 interface ScrapeResult {
+  session_id: number;
   articles: Article[];
   total: number;
   skipped: number;
@@ -31,20 +36,51 @@ export default function Home() {
   const [pageFrom, setPageFrom] = useState(1);
   const [pageTo, setPageTo] = useState(1);
   const [onlyFullAccess, setOnlyFullAccess] = useState(true);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+
+  const [appliedFilters, setAppliedFilters] = useState({
+    onlyFullAccess: true,
+    dateFrom: "",
+    dateTo: "",
+  });
+
+  const applyFilters = () => {
+    setAppliedFilters({ onlyFullAccess, dateFrom, dateTo });
+  };
+
+  const filtersChanged =
+    onlyFullAccess !== appliedFilters.onlyFullAccess ||
+    dateFrom !== appliedFilters.dateFrom ||
+    dateTo !== appliedFilters.dateTo;
 
   const debouncedQuery = useDebounce(query, 500);
 
   const pageCountQuery = useQuery({
-    queryKey: ["pageCount", debouncedQuery],
+    queryKey: ["pageCount", debouncedQuery, appliedFilters],
     queryFn: async () => {
-      const res = await fetch(
-        `/api/springer/page-count?query=${encodeURIComponent(debouncedQuery)}`
-      );
+      const params = new URLSearchParams({
+        query: debouncedQuery,
+        only_full_access: String(appliedFilters.onlyFullAccess),
+        date_from: appliedFilters.dateFrom,
+        date_to: appliedFilters.dateTo,
+      });
+      const res = await fetch(`/api/springer/page-count?${params}`);
       if (!res.ok) throw new Error("Failed to fetch page count");
       return res.json() as Promise<{ total_pages: number }>;
     },
     enabled: debouncedQuery.length > 2,
+    staleTime: 5 * 60 * 1000,
   });
+
+  const totalPages = pageCountQuery.data?.total_pages;
+
+  useEffect(() => {
+    if (totalPages !== undefined && totalPages > 0) {
+      setPageFrom(1);
+      setPageTo(totalPages);
+    }
+  }, [totalPages]);
 
   const scrapeMutation = useMutation({
     mutationFn: async () => {
@@ -55,7 +91,9 @@ export default function Home() {
           query,
           page_from: pageFrom,
           page_to: pageTo,
-          only_full_access: onlyFullAccess,
+          only_full_access: appliedFilters.onlyFullAccess,
+          date_from: appliedFilters.dateFrom,
+          date_to: appliedFilters.dateTo,
         }),
       });
       if (!res.ok) throw new Error("Scraping failed");
@@ -75,13 +113,21 @@ export default function Home() {
         onPageToChange={setPageTo}
         onlyFullAccess={onlyFullAccess}
         onOnlyFullAccessChange={setOnlyFullAccess}
-        totalPages={pageCountQuery.data?.total_pages}
-        isLoadingPages={pageCountQuery.isFetching}
+        dateFrom={dateFrom}
+        onDateFromChange={setDateFrom}
+        dateTo={dateTo}
+        onDateToChange={setDateTo}
+        totalPages={totalPages}
+        isLoadingPages={pageCountQuery.isLoading}
+        isFetchingPages={pageCountQuery.isFetching}
+        onApplyFilters={applyFilters}
+        filtersChanged={filtersChanged}
         onScrape={() => scrapeMutation.mutate()}
         isScraping={scrapeMutation.isPending}
       />
       {scrapeMutation.data && (
         <ResultsTable
+          query={query}
           articles={scrapeMutation.data.articles}
           total={scrapeMutation.data.total}
           skipped={scrapeMutation.data.skipped}
