@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 from config import DELAY_BETWEEN_PAGES
 from browser import create_browser
-from sites.springer.scrape import get_page_count, scrape_page, scrape_abstract, scrape_full_article
+from sites.springer.scrape import get_page_count, get_page_count_fast, scrape_page, scrape_abstract, scrape_full_article
 from database import (
     init_db, create_session, insert_articles, get_article,
     update_article_abstract, get_all_sessions, delete_session,
@@ -130,7 +130,15 @@ async def springer_page_count(
     date_from: str = Query(""),
     date_to: str = Query(""),
 ):
-    def _fetch():
+    try:
+        total = await asyncio.to_thread(
+            get_page_count_fast, query, only_full_access, date_from, date_to
+        )
+        return PageCountResponse(total_pages=total)
+    except Exception as fast_err:
+        logger.warning("Fast page-count failed (%s), falling back to Selenium", fast_err)
+
+    def _fetch_selenium():
         driver = create_browser()
         try:
             return get_page_count(driver, query, only_full_access, date_from, date_to)
@@ -138,9 +146,9 @@ async def springer_page_count(
             driver.quit()
 
     try:
-        total = await asyncio.to_thread(_fetch)
+        total = await asyncio.to_thread(_fetch_selenium)
     except Exception as e:
-        logger.exception("page-count failed")
+        logger.exception("page-count failed (both fast and Selenium)")
         raise HTTPException(status_code=500, detail=str(e))
     return PageCountResponse(total_pages=total)
 

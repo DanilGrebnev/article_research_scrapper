@@ -99,6 +99,10 @@ h1 {
   color: var(--text-secondary);
 }
 
+.hint--error {
+  color: #dc2626;
+}
+
 .btn-primary {
   background: var(--primary);
   color: #fff;

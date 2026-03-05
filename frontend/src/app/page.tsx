@@ -52,7 +52,10 @@ export default function Home() {
         date_to: debouncedDateTo,
       });
       const res = await fetch(`${API_URL}/api/springer/page-count?${params}`);
-      if (!res.ok) throw new Error("Failed to fetch page count");
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.detail || `Ошибка сервера (${res.status})`);
+      }
       return res.json() as Promise<{ total_pages: number }>;
     },
     enabled: debouncedQuery.length > 2,
@@ -189,6 +192,7 @@ export default function Home() {
         totalPages={totalPages}
         isLoadingPages={pageCountQuery.isLoading}
         isFetchingPages={pageCountQuery.isFetching}
+        pageCountError={pageCountQuery.error?.message ?? null}
         onScrape={startScraping}
         onStopScrape={stopScraping}
         isScraping={isScraping}

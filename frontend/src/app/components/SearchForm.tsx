@@ -23,6 +23,7 @@ interface SearchFormProps {
   totalPages?: number;
   isLoadingPages: boolean;
   isFetchingPages: boolean;
+  pageCountError: string | null;
   onScrape: () => void;
   onStopScrape: () => void;
   isScraping: boolean;
@@ -45,6 +46,7 @@ export default function SearchForm({
   totalPages,
   isLoadingPages,
   isFetchingPages,
+  pageCountError,
   onScrape,
   onStopScrape,
   isScraping,
@@ -69,7 +71,10 @@ export default function SearchForm({
           placeholder='Введите поисковый запрос...'
         />
         {isLoadingPages && <span className='hint'>Загрузка...</span>}
-        {!isLoadingPages && totalPages !== undefined && (
+        {!isLoadingPages && pageCountError && (
+          <span className='hint hint--error'>Ошибка: {pageCountError}</span>
+        )}
+        {!isLoadingPages && !pageCountError && totalPages !== undefined && (
           <span className='hint'>Найдено страниц: {totalPages}</span>
         )}
       </div>

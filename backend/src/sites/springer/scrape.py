@@ -4,6 +4,7 @@ import re
 import time
 from urllib.parse import quote_plus
 
+import requests as http_requests
 from bs4 import BeautifulSoup, NavigableString, Tag
 from selenium.common.exceptions import TimeoutException, WebDriverException
 from selenium.webdriver.common.by import By
@@ -19,6 +20,13 @@ from scraper import Scraper
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://link.springer.com"
+
+HTTP_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/131.0.0.0 Safari/537.36"
+)
+HTTP_TIMEOUT = 15
 
 
 def _dismiss_cookie_consent(driver: WebDriver):
@@ -84,11 +92,80 @@ def _build_search_url(
     page: int = 1,
     date_from: str = "",
     date_to: str = "",
+    open_access: bool = False,
 ) -> str:
     url = f"{BASE_URL}/search?query={quote_plus(query)}&sortBy=relevance&page={page}"
+    if open_access:
+        url += "&openAccess=true"
     if date_from or date_to:
         url += f"&date=custom&dateFrom={date_from}&dateTo={date_to}"
     return url
+
+
+def _parse_page_count_from_html(html: str, only_full_access: bool) -> int:
+    """
+    Parse Springer search HTML and return the page count.
+    When only_full_access=True, extracts the Open Access article count
+    from the filter label and calculates pages = ceil(N / 20).
+    Otherwise reads the max page number from the pagination.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+
+    if only_full_access:
+        label = soup.find("label", attrs={"for": "publishing-model-open access"})
+        if label:
+            m = re.search(r"\((\d[\d,]*)\)", label.get_text(strip=True))
+            if m:
+                count = int(m.group(1).replace(",", ""))
+                return max(1, math.ceil(count / ARTICLES_PER_PAGE))
+
+        cb = soup.find("input", attrs={"id": "publishing-model-open access"})
+        if cb and cb.parent:
+            m = re.search(r"\((\d[\d,]*)\)", cb.parent.get_text(strip=True))
+            if m:
+                count = int(m.group(1).replace(",", ""))
+                return max(1, math.ceil(count / ARTICLES_PER_PAGE))
+
+    page_items = soup.select("li.eds-c-pagination__item[data-page]")
+    if page_items:
+        return max(int(li["data-page"]) for li in page_items)
+
+    return 1
+
+
+def get_page_count_fast(
+    query: str,
+    only_full_access: bool = False,
+    date_from: str = "",
+    date_to: str = "",
+) -> int:
+    """
+    Fast page count via plain HTTP request (no Selenium/Chrome needed).
+    When only_full_access=True, adds &openAccess=true to the URL so
+    Springer filters results server-side; pagination then shows the
+    correct page count directly.
+    Raises on network errors or bot-protection pages so the caller
+    can fall back to the Selenium-based method.
+    """
+    url = _build_search_url(
+        query, date_from=date_from, date_to=date_to,
+        open_access=only_full_access,
+    )
+    resp = http_requests.get(
+        url,
+        headers={
+            "User-Agent": HTTP_USER_AGENT,
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "en-US,en;q=0.9",
+        },
+        timeout=HTTP_TIMEOUT,
+    )
+    resp.raise_for_status()
+
+    if "Client Challenge" in resp.text or "challenge-running" in resp.text:
+        raise RuntimeError("Springer returned a bot-protection challenge page")
+
+    return _parse_page_count_from_html(resp.text, only_full_access=False)
 
 
 def _get_pagination_max(driver: WebDriver) -> int:
@@ -157,17 +234,15 @@ def get_page_count(
     Открывает страницу поиска SpringerLink и возвращает
     общее количество страниц результатов.
 
-    При only_full_access=True извлекает число Open Access статей
-    из панели фильтров и вычисляет количество страниц.
+    При only_full_access=True добавляет &openAccess=true в URL,
+    и Springer сам фильтрует результаты — пагинация отражает
+    только Open Access статьи.
     """
-    search_url = _build_search_url(query, date_from=date_from, date_to=date_to)
+    search_url = _build_search_url(
+        query, date_from=date_from, date_to=date_to,
+        open_access=only_full_access,
+    )
     _navigate_and_wait(driver, search_url)
-
-    if only_full_access:
-        oa_count = _get_open_access_count(driver)
-        if oa_count is not None:
-            return max(1, math.ceil(oa_count / ARTICLES_PER_PAGE))
-        logger.warning("Could not get open access count, falling back to total pagination")
 
     return _get_pagination_max(driver)
 
@@ -187,7 +262,10 @@ def scrape_page(
       - articles: список статей [{title, description, authors}, ...]
       - skipped: количество пропущенных статей (без полного доступа)
     """
-    search_url = _build_search_url(query, page=page, date_from=date_from, date_to=date_to)
+    search_url = _build_search_url(
+        query, page=page, date_from=date_from, date_to=date_to,
+        open_access=only_full_access,
+    )
     _navigate_and_wait(driver, search_url)
 
     driver.implicitly_wait(0)
