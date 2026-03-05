@@ -3,10 +3,10 @@ import time
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 
-from config import CHROME_URL, HEADLESS, WAIT_TIMEOUT
+from config import CHROME_URL, HEADLESS, WAIT_TIMEOUT, BROWSER_CONNECT_RETRIES, BROWSER_CONNECT_DELAY
 
 
-def create_browser(retries=5, delay=3):
+def create_browser(retries=BROWSER_CONNECT_RETRIES, delay=BROWSER_CONNECT_DELAY):
     options = Options()
     if HEADLESS:
         options.add_argument("--headless=new")
@@ -19,6 +19,9 @@ def create_browser(retries=5, delay=3):
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/131.0.0.0 Safari/537.36"
     )
+    options.add_experimental_option("prefs", {
+        "profile.managed_default_content_settings.images": 2,
+    })
 
     for attempt in range(1, retries + 1):
         try:

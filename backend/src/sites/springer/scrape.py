@@ -1,13 +1,72 @@
+import logging
+import time
 from urllib.parse import quote_plus
 
+from selenium.common.exceptions import TimeoutException, WebDriverException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webdriver import WebDriver
 
-from config import WAIT_TIMEOUT
+from config import (
+    WAIT_TIMEOUT, PAGE_LOAD_TIMEOUT, ABSTRACT_LOAD_TIMEOUT,
+    DELAY_AFTER_COOKIE, PAGE_LOAD_RETRIES,
+    RETRY_DELAY_BASE, RETRY_DELAY_STEP,
+    CHALLENGE_DELAY_BASE, CHALLENGE_DELAY_STEP,
+)
 from scraper import Scraper
 
-# Базовый URL сайта SpringerLink
+logger = logging.getLogger(__name__)
+
 BASE_URL = "https://link.springer.com"
+
+
+def _dismiss_cookie_consent(driver: WebDriver):
+    """Close Springer's cookie consent dialog if present."""
+    try:
+        driver.implicitly_wait(0)
+        buttons = driver.find_elements(
+            By.CSS_SELECTOR, "button[data-cc-action='accept']"
+        )
+        if buttons:
+            buttons[0].click()
+            time.sleep(DELAY_AFTER_COOKIE)
+    except Exception:
+        pass
+    finally:
+        driver.implicitly_wait(WAIT_TIMEOUT)
+
+
+def _is_client_challenge(driver: WebDriver) -> bool:
+    """Check if Springer is showing a bot-protection 'Client Challenge' page."""
+    try:
+        return "Client Challenge" in driver.title or bool(
+            driver.find_elements(By.CSS_SELECTOR, "div.challenge-container, #challenge-running")
+        )
+    except Exception:
+        return False
+
+
+def _navigate_and_wait(driver: WebDriver, url: str, retries: int = PAGE_LOAD_RETRIES):
+    """Navigate to URL and wait for results, with retry and consent/challenge handling."""
+    scraper = Scraper(driver)
+    last_err = None
+    for attempt in range(retries + 1):
+        try:
+            scraper.go_to(url)
+            _dismiss_cookie_consent(driver)
+
+            if _is_client_challenge(driver):
+                logger.warning("Client Challenge detected (attempt %d), waiting...", attempt + 1)
+                time.sleep(CHALLENGE_DELAY_BASE + attempt * CHALLENGE_DELAY_STEP)
+                scraper.go_to(url)
+                _dismiss_cookie_consent(driver)
+
+            scraper.wait_for('[data-test="title"]', timeout=PAGE_LOAD_TIMEOUT)
+            return
+        except (TimeoutException, WebDriverException) as e:
+            last_err = e
+            logger.warning("Page load attempt %d failed for %s: %s", attempt + 1, url, e.__class__.__name__)
+            time.sleep(RETRY_DELAY_BASE + attempt * RETRY_DELAY_STEP)
+    raise last_err
 
 
 def _build_search_url(
@@ -36,13 +95,8 @@ def get_page_count(
     Открывает страницу поиска SpringerLink и возвращает
     общее количество страниц результатов.
     """
-    scraper = Scraper(driver)
-
     search_url = _build_search_url(query, open_access=only_full_access, date_from=date_from, date_to=date_to)
-    scraper.go_to(search_url)
-
-    # Ждём загрузки хотя бы одного заголовка статьи
-    scraper.wait_for('[data-test="title"]', timeout=20)
+    _navigate_and_wait(driver, search_url)
 
     # Извлекаем номера страниц из пагинации:
     # каждый <li> с атрибутом data-page содержит номер страницы
@@ -71,15 +125,9 @@ def scrape_page(
       - articles: список статей [{title, description, authors}, ...]
       - skipped: количество пропущенных статей (без полного доступа)
     """
-    scraper = Scraper(driver)
-
     search_url = _build_search_url(query, page=page, open_access=only_full_access, date_from=date_from, date_to=date_to)
-    scraper.go_to(search_url)
+    _navigate_and_wait(driver, search_url)
 
-    scraper.wait_for('[data-test="title"]', timeout=20)
-
-    # find_elements с implicit wait будет ждать 15 сек на каждый
-    # отсутствующий элемент — отключаем на время парсинга карточек
     driver.implicitly_wait(0)
 
     try:
@@ -148,7 +196,7 @@ def scrape_abstract(driver: WebDriver, article_url: str) -> str:
     scraper = Scraper(driver)
     scraper.go_to(article_url)
 
-    scraper.wait_for('#Abs1-content', timeout=20)
+    scraper.wait_for('#Abs1-content', timeout=ABSTRACT_LOAD_TIMEOUT)
 
     driver.implicitly_wait(0)
     try:

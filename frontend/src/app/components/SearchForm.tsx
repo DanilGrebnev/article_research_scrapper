@@ -23,8 +23,6 @@ interface SearchFormProps {
   totalPages?: number;
   isLoadingPages: boolean;
   isFetchingPages: boolean;
-  onApplyFilters: () => void;
-  filtersChanged: boolean;
   onScrape: () => void;
   onStopScrape: () => void;
   isScraping: boolean;
@@ -47,8 +45,6 @@ export default function SearchForm({
   totalPages,
   isLoadingPages,
   isFetchingPages,
-  onApplyFilters,
-  filtersChanged,
   onScrape,
   onStopScrape,
   isScraping,
@@ -56,32 +52,34 @@ export default function SearchForm({
 }: SearchFormProps) {
   const progressPercent =
     scrapeProgress && scrapeProgress.totalPages > 0
-      ? Math.round((scrapeProgress.currentPage / scrapeProgress.totalPages) * 100)
+      ? Math.round(
+          (scrapeProgress.currentPage / scrapeProgress.totalPages) * 100,
+        )
       : 0;
 
   return (
-    <div className="search-form">
-      <div className="form-group">
-        <label htmlFor="query">Ключевые слова</label>
+    <div className='search-form'>
+      <div className='form-group'>
+        <label htmlFor='query'>Ключевые слова</label>
         <input
-          id="query"
-          type="text"
+          id='query'
+          type='text'
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
-          placeholder="Введите поисковый запрос..."
+          placeholder='Введите поисковый запрос...'
         />
-        {isLoadingPages && <span className="hint">Загрузка...</span>}
+        {isLoadingPages && <span className='hint'>Загрузка...</span>}
         {!isLoadingPages && totalPages !== undefined && (
-          <span className="hint">Найдено страниц: {totalPages}</span>
+          <span className='hint'>Найдено страниц: {totalPages}</span>
         )}
       </div>
 
-      <div className="form-row">
-        <div className="form-group">
-          <label htmlFor="pageFrom">Страница с</label>
+      <div className='form-row'>
+        <div className='form-group'>
+          <label htmlFor='pageFrom'>Страница с</label>
           <input
-            id="pageFrom"
-            type="number"
+            id='pageFrom'
+            type='number'
             min={1}
             max={totalPages || 999}
             value={pageFrom}
@@ -89,11 +87,11 @@ export default function SearchForm({
             disabled={isFetchingPages || query.length < 3}
           />
         </div>
-        <div className="form-group">
-          <label htmlFor="pageTo">Страница по</label>
+        <div className='form-group'>
+          <label htmlFor='pageTo'>Страница по</label>
           <input
-            id="pageTo"
-            type="number"
+            id='pageTo'
+            type='number'
             min={pageFrom}
             max={totalPages || 999}
             value={pageTo}
@@ -103,15 +101,15 @@ export default function SearchForm({
         </div>
       </div>
 
-      <div className="form-row">
-        <div className="form-group">
-          <label htmlFor="dateFrom">Год с</label>
+      <div className='form-row'>
+        <div className='form-group'>
+          <label htmlFor='dateFrom'>Год с</label>
           <input
-            id="dateFrom"
-            type="text"
-            inputMode="numeric"
-            pattern="\d{4}"
-            placeholder="YYYY"
+            id='dateFrom'
+            type='text'
+            inputMode='numeric'
+            pattern='\d{4}'
+            placeholder='YYYY'
             value={dateFrom}
             maxLength={4}
             onChange={(e) => {
@@ -121,14 +119,14 @@ export default function SearchForm({
             disabled={isFetchingPages || query.length < 3}
           />
         </div>
-        <div className="form-group">
-          <label htmlFor="dateTo">Год по</label>
+        <div className='form-group'>
+          <label htmlFor='dateTo'>Год по</label>
           <input
-            id="dateTo"
-            type="text"
-            inputMode="numeric"
-            pattern="\d{4}"
-            placeholder="YYYY"
+            id='dateTo'
+            type='text'
+            inputMode='numeric'
+            pattern='\d{4}'
+            placeholder='YYYY'
             value={dateTo}
             maxLength={4}
             onChange={(e) => {
@@ -140,10 +138,10 @@ export default function SearchForm({
         </div>
       </div>
 
-      <div className="form-group checkbox-group">
+      <div className='form-group checkbox-group'>
         <label>
           <input
-            type="checkbox"
+            type='checkbox'
             checked={onlyFullAccess}
             onChange={(e) => onOnlyFullAccessChange(e.target.checked)}
             disabled={isFetchingPages || query.length < 3}
@@ -152,23 +150,16 @@ export default function SearchForm({
         </label>
       </div>
 
-      <div className="form-row">
-        <button
-          onClick={onApplyFilters}
-          disabled={!filtersChanged || isFetchingPages || query.length < 3}
-          className="btn-secondary"
-        >
-          Применить фильтры
-        </button>
+      <div className='form-row'>
         {isScraping ? (
-          <button onClick={onStopScrape} className="btn-danger">
+          <button onClick={onStopScrape} className='btn-danger'>
             Остановить скрапинг
           </button>
         ) : (
           <button
             onClick={onScrape}
-            disabled={isFetchingPages || filtersChanged || query.length < 3}
-            className="btn-primary"
+            disabled={isFetchingPages || query.length < 3}
+            className='btn-primary'
           >
             Запустить скраппинг
           </button>
@@ -176,24 +167,25 @@ export default function SearchForm({
       </div>
 
       {isScraping && scrapeProgress && (
-        <div className="scrape-progress">
-          <div className="scrape-progress__text">
-            Скраплено {scrapeProgress.currentPage} из {scrapeProgress.totalPages} страниц
+        <div className='scrape-progress'>
+          <div className='scrape-progress__text'>
+            Скраплено {scrapeProgress.currentPage} из{" "}
+            {scrapeProgress.totalPages} страниц
             {" | "}Найдено {scrapeProgress.articlesFound} статей
           </div>
-          <div className="scrape-progress__bar">
+          <div className='scrape-progress__bar'>
             <div
-              className="scrape-progress__fill"
+              className='scrape-progress__fill'
               style={{ width: `${progressPercent}%` }}
             />
           </div>
-          <div className="scrape-progress__percent">{progressPercent}%</div>
+          <div className='scrape-progress__percent'>{progressPercent}%</div>
         </div>
       )}
 
       {isScraping && !scrapeProgress && (
-        <div className="scrape-progress">
-          <div className="scrape-progress__text">Подключение к серверу...</div>
+        <div className='scrape-progress'>
+          <div className='scrape-progress__text'>Подключение к серверу...</div>
         </div>
       )}
     </div>

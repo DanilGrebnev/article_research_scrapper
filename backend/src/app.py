@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import threading
+import time
 from typing import Optional
 
 from fastapi import FastAPI, Query, HTTPException
@@ -11,6 +12,7 @@ from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
+from config import DELAY_BETWEEN_PAGES
 from browser import create_browser
 from sites.springer.scrape import get_page_count, scrape_page, scrape_abstract
 from database import (
@@ -146,10 +148,23 @@ async def springer_scrape_sse(
                         })
                         return
 
-                    result = await asyncio.to_thread(
-                        scrape_page, driver, query, page_num,
-                        only_full_access, date_from, date_to,
-                    )
+                    try:
+                        result = await asyncio.to_thread(
+                            scrape_page, driver, query, page_num,
+                            only_full_access, date_from, date_to,
+                        )
+                    except Exception as page_err:
+                        logger.warning("Page %d failed: %s", page_num, page_err)
+                        pages_done = page_num - page_from + 1
+                        update_session_pages(session_id, pages_done)
+                        yield _sse_event("progress", {
+                            "current_page": pages_done,
+                            "total_pages": total_pages,
+                            "articles_found": total_articles,
+                            "skipped": total_skipped,
+                            "page_error": f"Страница {page_num} пропущена",
+                        })
+                        continue
 
                     page_articles = result["articles"]
                     if page_articles:
@@ -160,11 +175,14 @@ async def springer_scrape_sse(
                     update_session_pages(session_id, pages_done)
 
                     yield _sse_event("progress", {
-                        "current_page": page_num - page_from + 1,
+                        "current_page": pages_done,
                         "total_pages": total_pages,
                         "articles_found": total_articles,
                         "skipped": total_skipped,
                     })
+
+                    if page_num < page_to and DELAY_BETWEEN_PAGES > 0:
+                        await asyncio.sleep(DELAY_BETWEEN_PAGES)
 
                 yield _sse_event("complete", {
                     "session_id": session_id,

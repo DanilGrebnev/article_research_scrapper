@@ -38,31 +38,18 @@ export default function Home() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
-  const [appliedFilters, setAppliedFilters] = useState({
-    onlyFullAccess: true,
-    dateFrom: "",
-    dateTo: "",
-  });
-
-  const applyFilters = () => {
-    setAppliedFilters({ onlyFullAccess, dateFrom, dateTo });
-  };
-
-  const filtersChanged =
-    onlyFullAccess !== appliedFilters.onlyFullAccess ||
-    dateFrom !== appliedFilters.dateFrom ||
-    dateTo !== appliedFilters.dateTo;
-
   const debouncedQuery = useDebounce(query, 500);
+  const debouncedDateFrom = useDebounce(dateFrom, 500);
+  const debouncedDateTo = useDebounce(dateTo, 500);
 
   const pageCountQuery = useQuery({
-    queryKey: ["pageCount", debouncedQuery, appliedFilters],
+    queryKey: ["pageCount", debouncedQuery, onlyFullAccess, debouncedDateFrom, debouncedDateTo],
     queryFn: async () => {
       const params = new URLSearchParams({
         query: debouncedQuery,
-        only_full_access: String(appliedFilters.onlyFullAccess),
-        date_from: appliedFilters.dateFrom,
-        date_to: appliedFilters.dateTo,
+        only_full_access: String(onlyFullAccess),
+        date_from: debouncedDateFrom,
+        date_to: debouncedDateTo,
       });
       const res = await fetch(`${API_URL}/api/springer/page-count?${params}`);
       if (!res.ok) throw new Error("Failed to fetch page count");
@@ -82,9 +69,15 @@ export default function Home() {
   }, [totalPages]);
 
   const [isScraping, setIsScraping] = useState(false);
-  const [scrapeProgress, setScrapeProgress] = useState<ScrapeProgress | null>(null);
+  const [scrapeProgress, setScrapeProgress] = useState<ScrapeProgress | null>(
+    null,
+  );
   const [scrapeSessionId, setScrapeSessionId] = useState<number | null>(null);
-  const [scrapeResult, setScrapeResult] = useState<{ articles: Article[]; total: number; skipped: number } | null>(null);
+  const [scrapeResult, setScrapeResult] = useState<{
+    articles: Article[];
+    total: number;
+    skipped: number;
+  } | null>(null);
   const [scrapeError, setScrapeError] = useState<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
@@ -105,9 +98,9 @@ export default function Home() {
       query,
       page_from: String(pageFrom),
       page_to: String(pageTo),
-      only_full_access: String(appliedFilters.onlyFullAccess),
-      date_from: appliedFilters.dateFrom,
-      date_to: appliedFilters.dateTo,
+      only_full_access: String(onlyFullAccess),
+      date_from: dateFrom,
+      date_to: dateTo,
     });
 
     const es = new EventSource(`${API_URL}/api/springer/scrape?${params}`);
@@ -152,7 +145,7 @@ export default function Home() {
       setScrapeProgress(null);
       setScrapeError("Соединение с сервером потеряно");
     };
-  }, [query, pageFrom, pageTo, appliedFilters]);
+  }, [query, pageFrom, pageTo, onlyFullAccess, dateFrom, dateTo]);
 
   const stopScraping = useCallback(async () => {
     if (scrapeSessionId) {
@@ -196,8 +189,6 @@ export default function Home() {
         totalPages={totalPages}
         isLoadingPages={pageCountQuery.isLoading}
         isFetchingPages={pageCountQuery.isFetching}
-        onApplyFilters={applyFilters}
-        filtersChanged={filtersChanged}
         onScrape={startScraping}
         onStopScrape={stopScraping}
         isScraping={isScraping}
@@ -211,11 +202,7 @@ export default function Home() {
           skipped={scrapeResult.skipped}
         />
       )}
-      {scrapeError && (
-        <div className="error">
-          Ошибка: {scrapeError}
-        </div>
-      )}
+      {scrapeError && <div className='error'>Ошибка: {scrapeError}</div>}
     </main>
   );
 }
