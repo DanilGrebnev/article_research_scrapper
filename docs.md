@@ -141,10 +141,29 @@ scrapper/
 ### Требования
 - Docker и Docker Compose
 
-### Запуск
+### Dev-режим (разработка)
+
+```bash
+docker compose -f docker-compose.dev.yml up --build
+```
+
+- Frontend: Next.js dev server с hot-reload
+- Backend: uvicorn с `--reload`
+- Исходники маунтятся с хоста — изменения в коде подхватываются автоматически без пересборки
+
+### Production-режим
 
 ```bash
 docker compose up --build
+```
+
+- Frontend: собранный `next build` + `next start`
+- Backend: uvicorn без reload
+
+### Остановка
+
+```bash
+docker compose down
 ```
 
 Откройте в браузере: **http://localhost:3000**

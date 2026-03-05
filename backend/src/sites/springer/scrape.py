@@ -1,4 +1,5 @@
 import logging
+import math
 import re
 import time
 from urllib.parse import quote_plus
@@ -7,7 +8,6 @@ from bs4 import BeautifulSoup, NavigableString, Tag
 from selenium.common.exceptions import TimeoutException, WebDriverException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webdriver import WebDriver
-
 from config import (
     WAIT_TIMEOUT, PAGE_LOAD_TIMEOUT, ABSTRACT_LOAD_TIMEOUT,
     DELAY_AFTER_COOKIE, PAGE_LOAD_RETRIES,
@@ -76,19 +76,74 @@ def _navigate_and_wait(driver: WebDriver, url: str, retries: int = PAGE_LOAD_RET
     raise last_err
 
 
+ARTICLES_PER_PAGE = 20
+
+
 def _build_search_url(
     query: str,
     page: int = 1,
-    open_access: bool = False,
     date_from: str = "",
     date_to: str = "",
 ) -> str:
     url = f"{BASE_URL}/search?query={quote_plus(query)}&sortBy=relevance&page={page}"
-    if open_access:
-        url += "&openAccess=true"
     if date_from or date_to:
         url += f"&date=custom&dateFrom={date_from}&dateTo={date_to}"
     return url
+
+
+def _get_pagination_max(driver: WebDriver) -> int:
+    """Extract max page number from Springer pagination."""
+    driver.implicitly_wait(0)
+    try:
+        page_items = driver.find_elements(
+            By.CSS_SELECTOR, "li.eds-c-pagination__item[data-page]"
+        )
+    finally:
+        driver.implicitly_wait(WAIT_TIMEOUT)
+
+    if not page_items:
+        return 1
+    return max(int(item.get_attribute("data-page")) for item in page_items)
+
+
+def _get_open_access_count(driver: WebDriver) -> int | None:
+    """
+    Extract the Open Access article count from the filter panel HTML.
+    Springer renders the filter label as:
+      <label for="publishing-model-open access">
+        <span>Open access</span><span>(74)</span>
+      </label>
+    """
+    try:
+        html = driver.page_source
+        soup = BeautifulSoup(html, "html.parser")
+
+        label = soup.find("label", attrs={"for": "publishing-model-open access"})
+        if label:
+            label_text = label.get_text(strip=True)
+            m = re.search(r"\((\d[\d,]*)\)", label_text)
+            if m:
+                count = int(m.group(1).replace(",", ""))
+                logger.info("Open access count from label: %d", count)
+                return count
+
+        cb = soup.find("input", attrs={"id": "publishing-model-open access"})
+        if cb:
+            parent = cb.parent
+            if parent:
+                parent_text = parent.get_text(strip=True)
+                m = re.search(r"\((\d[\d,]*)\)", parent_text)
+                if m:
+                    count = int(m.group(1).replace(",", ""))
+                    logger.info("Open access count from parent: %d", count)
+                    return count
+
+        logger.warning("Could not find open access count in filter HTML")
+
+    except Exception as e:
+        logger.warning("Failed to extract open access count: %s", e)
+
+    return None
 
 
 def get_page_count(
@@ -101,23 +156,20 @@ def get_page_count(
     """
     Открывает страницу поиска SpringerLink и возвращает
     общее количество страниц результатов.
+
+    При only_full_access=True извлекает число Open Access статей
+    из панели фильтров и вычисляет количество страниц.
     """
-    search_url = _build_search_url(query, open_access=only_full_access, date_from=date_from, date_to=date_to)
+    search_url = _build_search_url(query, date_from=date_from, date_to=date_to)
     _navigate_and_wait(driver, search_url)
 
-    driver.implicitly_wait(0)
-    try:
-        page_items = driver.find_elements(
-            By.CSS_SELECTOR, "li.eds-c-pagination__item[data-page]"
-        )
-    finally:
-        driver.implicitly_wait(WAIT_TIMEOUT)
+    if only_full_access:
+        oa_count = _get_open_access_count(driver)
+        if oa_count is not None:
+            return max(1, math.ceil(oa_count / ARTICLES_PER_PAGE))
+        logger.warning("Could not get open access count, falling back to total pagination")
 
-    if not page_items:
-        return 1
-
-    max_page = max(int(item.get_attribute("data-page")) for item in page_items)
-    return max_page
+    return _get_pagination_max(driver)
 
 
 def scrape_page(
@@ -135,7 +187,7 @@ def scrape_page(
       - articles: список статей [{title, description, authors}, ...]
       - skipped: количество пропущенных статей (без полного доступа)
     """
-    search_url = _build_search_url(query, page=page, open_access=only_full_access, date_from=date_from, date_to=date_to)
+    search_url = _build_search_url(query, page=page, date_from=date_from, date_to=date_to)
     _navigate_and_wait(driver, search_url)
 
     driver.implicitly_wait(0)
