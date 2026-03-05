@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export interface Article {
@@ -89,6 +90,9 @@ export default function ArticleCard({ article }: { article: Article }) {
         <div className="article-card__abstract">
           <h4>Abstract</h4>
           <p>{abstract}</p>
+          <Link href={`/article/${article.id}`} className="btn-full-article">
+            Открыть полную статью →
+          </Link>
         </div>
       )}
 

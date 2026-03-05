@@ -585,3 +585,156 @@ h1 {
   pointer-events: none;
   transition: opacity 0.2s ease;
 }
+
+/* --- "Открыть полную статью" button in card --- */
+
+.btn-full-article {
+  display: inline-block;
+  margin-top: 0.75rem;
+  padding: 0.45rem 1rem;
+  background: var(--primary);
+  color: #fff;
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background 0.2s;
+}
+
+.btn-full-article:hover {
+  background: var(--primary-hover);
+}
+
+/* --- Article full page --- */
+
+.article-page {
+  max-width: 820px;
+  margin: 0 auto;
+}
+
+.article-page__back {
+  display: inline-block;
+  margin-bottom: 1.25rem;
+  font-size: 0.9rem;
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.article-page__back:hover {
+  text-decoration: underline;
+}
+
+.article-page__header {
+  margin-bottom: 2rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.article-page__title {
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1.35;
+  margin-bottom: 0.75rem;
+}
+
+.article-page__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.5rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.article-page__authors {
+  font-size: 0.9rem;
+  color: var(--text);
+  width: 100%;
+}
+
+.article-page__original-link {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.article-page__original-link:hover {
+  text-decoration: underline;
+}
+
+.article-page__empty {
+  padding: 2rem;
+  text-align: center;
+  color: var(--text-secondary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.article-page__section {
+  margin-bottom: 1.75rem;
+}
+
+.article-page__section h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.article-page__subsection {
+  margin-bottom: 1.25rem;
+  margin-left: 0.5rem;
+}
+
+.article-page__subsection h3 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: var(--text);
+}
+
+.article-page__text {
+  font-size: 0.95rem;
+  line-height: 1.75;
+  margin-bottom: 0.75rem;
+  color: var(--text);
+  text-align: justify;
+}
+
+.article-page__references {
+  margin-top: 2.5rem;
+  padding-top: 1rem;
+  border-top: 2px solid var(--border);
+}
+
+.article-page__ref-list {
+  padding-left: 2rem;
+  list-style-type: decimal;
+}
+
+.article-page__ref-list li {
+  font-size: 0.88rem;
+  line-height: 1.55;
+  margin-bottom: 0.6rem;
+  color: var(--text);
+}
+
+.article-page__doi {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.1rem 0.45rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--primary);
+  border: 1px solid var(--primary);
+  border-radius: 4px;
+  text-decoration: none;
+  vertical-align: middle;
+}
+
+.article-page__doi:hover {
+  background: var(--primary);
+  color: #fff;
+}

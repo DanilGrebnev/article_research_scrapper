@@ -14,11 +14,13 @@ logger = logging.getLogger(__name__)
 
 from config import DELAY_BETWEEN_PAGES
 from browser import create_browser
-from sites.springer.scrape import get_page_count, scrape_page, scrape_abstract
+from sites.springer.scrape import get_page_count, scrape_page, scrape_abstract, scrape_full_article
 from database import (
     init_db, create_session, insert_articles, get_article,
     update_article_abstract, get_all_sessions, delete_session,
     get_session, search_articles_by_title, update_session_pages,
+    insert_article_sections, insert_article_references,
+    get_article_sections, get_article_references, is_article_analyzed,
 )
 
 app = FastAPI(title="Scrapper API")
@@ -75,6 +77,32 @@ class PageCountResponse(BaseModel):
 
 class AbstractResponse(BaseModel):
     abstract: str
+
+
+class SectionItem(BaseModel):
+    id: int
+    title: str
+    content: str
+    heading_level: int
+    order_index: int
+
+
+class ReferenceItem(BaseModel):
+    id: int
+    ref_number: int
+    text: str
+    doi: str
+
+
+class ArticleFullResponse(BaseModel):
+    id: int
+    title: str
+    url: str
+    published_date: str
+    authors: str
+    abstract: Optional[str]
+    sections: list[SectionItem]
+    references: list[ReferenceItem]
 
 
 class SessionListItem(BaseModel):
@@ -215,7 +243,7 @@ async def fetch_article_abstract(article_id: int):
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
 
-    if article.get("abstract"):
+    if article.get("abstract") and is_article_analyzed(article_id):
         return AbstractResponse(abstract=article["abstract"])
 
     article_url = article["url"]
@@ -225,18 +253,45 @@ async def fetch_article_abstract(article_id: int):
     def _fetch():
         driver = create_browser()
         try:
-            return scrape_abstract(driver, article_url)
+            return scrape_full_article(driver, article_url)
         finally:
             driver.quit()
 
     try:
-        abstract = await asyncio.to_thread(_fetch)
+        result = await asyncio.to_thread(_fetch)
     except Exception as e:
-        logger.exception("abstract scrape failed for article %s", article_id)
+        logger.exception("full article scrape failed for article %s", article_id)
         raise HTTPException(status_code=500, detail=str(e))
 
-    update_article_abstract(article_id, abstract)
-    return AbstractResponse(abstract=abstract)
+    update_article_abstract(article_id, result["abstract"])
+
+    if result["sections"]:
+        insert_article_sections(article_id, result["sections"])
+    if result["references"]:
+        insert_article_references(article_id, result["references"])
+
+    return AbstractResponse(abstract=result["abstract"])
+
+
+@app.get("/api/article/{article_id}/full", response_model=ArticleFullResponse)
+async def get_full_article(article_id: int):
+    article = get_article(article_id)
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    sections = get_article_sections(article_id)
+    references = get_article_references(article_id)
+
+    return ArticleFullResponse(
+        id=article["id"],
+        title=article["title"],
+        url=article.get("url", ""),
+        published_date=article.get("published_date", ""),
+        authors=article.get("authors", ""),
+        abstract=article.get("abstract"),
+        sections=[SectionItem(**s) for s in sections],
+        references=[ReferenceItem(**r) for r in references],
+    )
 
 
 @app.get("/api/sessions", response_model=list[SessionListItem])

@@ -1,7 +1,9 @@
 import logging
+import re
 import time
 from urllib.parse import quote_plus
 
+from bs4 import BeautifulSoup, NavigableString, Tag
 from selenium.common.exceptions import TimeoutException, WebDriverException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webdriver import WebDriver
@@ -38,11 +40,16 @@ def _dismiss_cookie_consent(driver: WebDriver):
 def _is_client_challenge(driver: WebDriver) -> bool:
     """Check if Springer is showing a bot-protection 'Client Challenge' page."""
     try:
-        return "Client Challenge" in driver.title or bool(
+        if "Client Challenge" in driver.title:
+            return True
+        driver.implicitly_wait(0)
+        return bool(
             driver.find_elements(By.CSS_SELECTOR, "div.challenge-container, #challenge-running")
         )
     except Exception:
         return False
+    finally:
+        driver.implicitly_wait(WAIT_TIMEOUT)
 
 
 def _navigate_and_wait(driver: WebDriver, url: str, retries: int = PAGE_LOAD_RETRIES):
@@ -98,11 +105,14 @@ def get_page_count(
     search_url = _build_search_url(query, open_access=only_full_access, date_from=date_from, date_to=date_to)
     _navigate_and_wait(driver, search_url)
 
-    # Извлекаем номера страниц из пагинации:
-    # каждый <li> с атрибутом data-page содержит номер страницы
-    page_items = driver.find_elements(
-        By.CSS_SELECTOR, "li.eds-c-pagination__item[data-page]"
-    )
+    driver.implicitly_wait(0)
+    try:
+        page_items = driver.find_elements(
+            By.CSS_SELECTOR, "li.eds-c-pagination__item[data-page]"
+        )
+    finally:
+        driver.implicitly_wait(WAIT_TIMEOUT)
+
     if not page_items:
         return 1
 
@@ -205,3 +215,140 @@ def scrape_abstract(driver: WebDriver, article_url: str) -> str:
         return abstract or "—"
     finally:
         driver.implicitly_wait(WAIT_TIMEOUT)
+
+
+def _clean_paragraph_text(tag: Tag) -> str:
+    """Extract readable text from a <p>, stripping inline reference markers like [1,2,3]."""
+    for sup in tag.find_all("sup"):
+        if sup.find("a", attrs={"data-test": "citation-ref"}):
+            sup.decompose()
+    text = tag.get_text(separator="", strip=False)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def scrape_full_article(driver: WebDriver, article_url: str) -> dict:
+    """
+    Переходит на страницу статьи и извлекает:
+      - abstract
+      - sections (с подзаголовками)
+      - references (список литературы)
+    """
+    scraper = Scraper(driver)
+    scraper.go_to(article_url)
+    _dismiss_cookie_consent(driver)
+
+    scraper.wait_for("div.main-content, #Abs1-content", timeout=ABSTRACT_LOAD_TIMEOUT)
+    time.sleep(1)
+
+    html = driver.page_source
+    soup = BeautifulSoup(html, "html.parser")
+
+    abstract = _parse_abstract(soup)
+    sections = _parse_sections(soup)
+    references = _parse_references(soup)
+
+    return {
+        "abstract": abstract,
+        "sections": sections,
+        "references": references,
+    }
+
+
+def _parse_abstract(soup: BeautifulSoup) -> str:
+    abs_div = soup.select_one("#Abs1-content")
+    if not abs_div:
+        return "—"
+    paragraphs = abs_div.find_all("p")
+    texts = []
+    for p in paragraphs:
+        t = _clean_paragraph_text(p)
+        if t:
+            texts.append(t)
+    return "\n\n".join(texts) or "—"
+
+
+def _parse_sections(soup: BeautifulSoup) -> list[dict]:
+    sections: list[dict] = []
+    order = 0
+
+    main = soup.select_one("div.main-content")
+    if not main:
+        return sections
+
+    for section_tag in main.find_all("section", attrs={"data-title": True}):
+        data_title = section_tag["data-title"]
+        if data_title.lower() == "abstract":
+            continue
+
+        content_div = section_tag.select_one(".c-article-section__content")
+        if not content_div:
+            continue
+
+        current_title = data_title
+        current_level = 2
+        current_paragraphs: list[str] = []
+
+        def _flush():
+            nonlocal order
+            if current_paragraphs:
+                sections.append({
+                    "title": current_title,
+                    "content": "\n\n".join(current_paragraphs),
+                    "heading_level": current_level,
+                    "order_index": order,
+                })
+                order += 1
+
+        for child in content_div.children:
+            if not isinstance(child, Tag):
+                continue
+
+            is_subheading = (
+                child.name == "h3"
+                or (child.has_attr("class") and "c-article__sub-heading" in child.get("class", []))
+            )
+
+            if is_subheading:
+                _flush()
+                current_title = child.get_text(strip=True)
+                current_level = 3
+                current_paragraphs = []
+                continue
+
+            if child.name == "p":
+                text = _clean_paragraph_text(child)
+                if text:
+                    current_paragraphs.append(text)
+
+        _flush()
+
+    return sections
+
+
+def _parse_references(soup: BeautifulSoup) -> list[dict]:
+    references: list[dict] = []
+    ref_list = soup.select("ol.c-article-references > li")
+
+    for li in ref_list:
+        counter = li.get("data-counter", "").strip().rstrip(".")
+        try:
+            ref_number = int(counter)
+        except (ValueError, TypeError):
+            ref_number = len(references) + 1
+
+        text_el = li.select_one(".c-article-references__text")
+        text = text_el.get_text(strip=True) if text_el else li.get_text(strip=True)
+
+        doi = ""
+        doi_link = li.select_one("a[data-doi]")
+        if doi_link:
+            doi = doi_link.get("data-doi", "")
+
+        references.append({
+            "ref_number": ref_number,
+            "text": text,
+            "doi": doi,
+        })
+
+    return references

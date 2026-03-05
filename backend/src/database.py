@@ -38,6 +38,25 @@ def init_db():
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (session_id) REFERENCES scrape_sessions(id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS article_sections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                article_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                heading_level INTEGER NOT NULL DEFAULT 2,
+                order_index INTEGER NOT NULL,
+                FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS article_references (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                article_id INTEGER NOT NULL,
+                ref_number INTEGER NOT NULL,
+                text TEXT NOT NULL,
+                doi TEXT NOT NULL DEFAULT '',
+                FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE
+            );
         """)
         conn.commit()
 
@@ -185,5 +204,72 @@ def search_articles_by_title(session_id: int, title_query: str) -> list[dict]:
                 (session_id,),
             ).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def insert_article_sections(article_id: int, sections: list[dict]):
+    conn = _get_connection()
+    try:
+        for s in sections:
+            conn.execute(
+                """INSERT INTO article_sections
+                   (article_id, title, content, heading_level, order_index)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (article_id, s["title"], s["content"],
+                 s.get("heading_level", 2), s["order_index"]),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def insert_article_references(article_id: int, references: list[dict]):
+    conn = _get_connection()
+    try:
+        for r in references:
+            conn.execute(
+                """INSERT INTO article_references
+                   (article_id, ref_number, text, doi)
+                   VALUES (?, ?, ?, ?)""",
+                (article_id, r["ref_number"], r["text"], r.get("doi", "")),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_article_sections(article_id: int) -> list[dict]:
+    conn = _get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM article_sections WHERE article_id = ? ORDER BY order_index",
+            (article_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_article_references(article_id: int) -> list[dict]:
+    conn = _get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM article_references WHERE article_id = ? ORDER BY ref_number",
+            (article_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def is_article_analyzed(article_id: int) -> bool:
+    conn = _get_connection()
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) as cnt FROM article_sections WHERE article_id = ?",
+            (article_id,),
+        ).fetchone()
+        return row["cnt"] > 0
     finally:
         conn.close()
